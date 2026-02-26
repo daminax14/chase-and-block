@@ -1,26 +1,27 @@
+import React from 'react';
 import { useGameStore } from './store/useGameStore';
 import { CareerPage } from './components/UI/CareerPage';
 import { GameScene } from './components/Game/GameScene';
+import { Shop } from './components/UI/Shop';         // Lo creeremo tra un secondo
+import { MainMenu } from './components/UI/MainMenu'; // Lo creeremo tra un secondo
 
 function App() {
+  // Prendiamo la vista attuale dallo store
   const view = useGameStore((state) => state.view);
 
   return (
-    <main className="w-full h-screen overflow-x-hidden bg-black">
-      {view === 'MENU' && (
-        <div className="h-full flex flex-col items-center justify-center space-y-6">
-          <h1 className="text-5xl font-black text-white italic tracking-tighter">CHASE BLOCK 3D</h1>
-          <button 
-            onClick={() => useGameStore.getState().setView('CAREER')}
-            className="px-12 py-4 bg-yellow-400 text-black font-bold rounded-full hover:scale-105 transition-transform"
-          >
-            START CAREER
-          </button>
-        </div>
-      )}
+    <main className="w-full h-screen overflow-hidden bg-black text-white">
+      
+      {/* 🏠 SCHERMATA MENU PRINCIPALE */}
+      {view === 'MENU' && <MainMenu />}
 
+      {/* 💰 IL NEGOZIO DELLE SKIN */}
+      {view === 'SHOP' && <Shop />}
+
+      {/* 🗺️ MAPPA DELLA CARRIERA (LIVELLI) */}
       {view === 'CAREER' && <CareerPage />}
-     
+      
+      {/* 🎮 IL GIOCO VERO E PROPRIO */}
       {view === 'GAME' && <GameScene />}
 
     </main>

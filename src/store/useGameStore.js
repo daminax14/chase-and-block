@@ -1,166 +1,210 @@
 import { create } from 'zustand';
+import { generateLevel } from '../engine/LevelFactory';
+
+/**
+ * Trova il percorso più breve tra due nodi ignorando quelli bloccati.
+ * Restituisce l'array dei nodi del percorso o null se non esiste.
+ */
+const getShortestPath = (start, target, connections, blocked) => {
+  const queue = [[start]];
+  const visited = new Set([start, ...blocked]);
+
+  while (queue.length > 0) {
+    const path = queue.shift();
+    const node = path[path.length - 1];
+
+    if (node === target) return path;
+
+    const neighbors = connections
+      .filter(conn => conn.includes(node))
+      .map(conn => (conn[0] === node ? conn[1] : conn[0]))
+      .filter(n => !visited.has(n));
+
+    for (const neighbor of neighbors) {
+      visited.add(neighbor);
+      queue.push([...path, neighbor]);
+    }
+  }
+  return null;
+};
 
 export const useGameStore = create((set, get) => ({
-  view: 'GAME',
-  currentLevel: 1,
+  view: 'MENU',
+  coins: 50,
+  ownedSkins: ['default'],
+  selectedSkin: 'default',
+  unlockedLevels: 1,
+  currentLevelNumber: 1,
+  currentLevel: null,
   gameState: 'PLAYING',
-  thiefPosition: 'node3',
-  guardPosition: 'node1',
+  thiefPosition: null,
+  guardPosition: null,
   blockedNodes: new Set(),
-  
-  levels: [
-    {
-      id: 1, name: "Tutorial Mare",
-      nodes: [
-        { id: 'node1', x: -4, z: 0, type: 'start' },
-        { id: 'node2', x: 0, z: 0, type: 'normal' },
-        { id: 'node3', x: 4, z: 0, type: 'normal' },
-        { id: 'node_exit', x: 0, z: 4, type: 'exit' },
-      ],
-      connections: [['node1', 'node2'], ['node2', 'node3'], ['node2', 'node_exit']]
-    },
-    {
-      id: 2, name: "Catch Him!!",
-      nodes: [
-        { id: 'L2_THIEF_START', x: 0, z: 6, type: 'normal' },
-        { id: 'L2_F1_1', x: -4, z: 3, type: 'normal' }, { id: 'L2_F1_2', x: 0, z: 3, type: 'normal' }, { id: 'L2_F1_3', x: 4, z: 3, type: 'normal' },
-        { id: 'L2_F2_1', x: -4, z: 0, type: 'normal' }, { id: 'L2_F2_2', x: 0, z: 0, type: 'normal' }, { id: 'L2_F2_3', x: 4, z: 0, type: 'normal' },
-        { id: 'L2_EXIT_1', x: -4, z: -3, type: 'exit' }, { id: 'L2_EXIT_2', x: 0, z: -3, type: 'exit' }, { id: 'L2_EXIT_3', x: 4, z: -3, type: 'exit' },
-      ],
-      connections: [
-        ['L2_THIEF_START', 'L2_F1_1'], ['L2_THIEF_START', 'L2_F1_2'], ['L2_THIEF_START', 'L2_F1_3'],
-        ['L2_F1_1', 'L2_F1_2'], ['L2_F1_2', 'L2_F1_3'],
-        ['L2_F1_1', 'L2_F2_1'], ['L2_F1_1', 'L2_F2_2'],
-        ['L2_F1_2', 'L2_F2_1'], ['L2_F1_2', 'L2_F2_2'], ['L2_F1_2', 'L2_F2_3'],
-        ['L2_F1_3', 'L2_F2_2'], ['L2_F1_3', 'L2_F2_3'],
-        ['L2_F2_1', 'L2_F2_2'], ['L2_F2_2', 'L2_F2_3'],
-        ['L2_F2_1', 'L2_EXIT_1'], ['L2_F2_1', 'L2_EXIT_2'],
-        ['L2_F2_2', 'L2_EXIT_1'], ['L2_F2_2', 'L2_EXIT_2'], ['L2_F2_2', 'L2_EXIT_3'],
-        ['L2_F2_3', 'L2_EXIT_2'], ['L2_F2_3', 'L2_EXIT_3'],
-      ]
-    },
-    {
-      id: 3, name: "Il Doppio Imbuto",
-      nodes: [
-        { id: 'L3_START', x: 0, z: 8, type: 'normal' },
-        { id: 'L3_C_1', x: -3, z: 5, type: 'normal' }, { id: 'L3_C_2', x: 3, z: 5, type: 'normal' },
-        { id: 'L3_MID', x: 0, z: 2, type: 'normal' },
-        { id: 'L3_L_1', x: -6, z: 2, type: 'normal' }, { id: 'L3_R_1', x: 6, z: 2, type: 'normal' },
-        { id: 'L3_L_EXIT', x: -6, z: -4, type: 'exit' }, { id: 'L3_R_EXIT', x: 6, z: -4, type: 'exit' },
-        { id: 'L3_BLOCK', x: 0, z: 5, type: 'normal' }
-      ],
-      connections: [
-        ['L3_START', 'L3_C_1'], ['L3_START', 'L3_C_2'], ['L3_START', 'L3_BLOCK'],
-        ['L3_C_1', 'L3_L_1'], ['L3_C_1', 'L3_MID'], ['L3_BLOCK', 'L3_MID'],
-        ['L3_C_2', 'L3_R_1'], ['L3_C_2', 'L3_MID'],
-        ['L3_L_1', 'L3_L_EXIT'], ['L3_R_1', 'L3_R_EXIT'],
-        ['L3_MID', 'L3_L_1'], ['L3_MID', 'L3_R_1']
-      ]
-    },
-    {
-      id: 4, name: "Il Tridente",
-      nodes: [
-        { id: 'L4_CENTER', x: 0, z: 0, type: 'normal' }, // Partenza Ladro
-        { id: 'L4_G_START', x: 0, z: -4, type: 'normal' }, // Partenza Guardia
-        // Ramo Sinistro
-        { id: 'L4_L1', x: -4, z: 2, type: 'normal' }, { id: 'L4_L2', x: -6, z: 5, type: 'normal' }, { id: 'L4_LEXIT', x: -8, z: 8, type: 'exit' },
-        // Ramo Centrale
-        { id: 'L4_C1', x: 0, z: 3, type: 'normal' }, { id: 'L4_C2', x: 0, z: 6, type: 'normal' }, { id: 'L4_CEXIT', x: 0, z: 9, type: 'exit' },
-        // Ramo Destro
-        { id: 'L4_R1', x: 4, z: 2, type: 'normal' }, { id: 'L4_R2', x: 6, z: 5, type: 'normal' }, { id: 'L4_REXIT', x: 8, z: 8, type: 'exit' },
-        // Connessioni Trasversali (i blocchi "imboscata")
-        { id: 'L4_B1', x: -3, z: 5, type: 'normal' }, { id: 'L4_B2', x: 3, z: 5, type: 'normal' }
-      ],
-      connections: [
-        ['L4_G_START', 'L4_CENTER'],
-        ['L4_CENTER', 'L4_L1'], ['L4_CENTER', 'L4_C1'], ['L4_CENTER', 'L4_R1'],
-        ['L4_L1', 'L4_L2'], ['L4_L2', 'L4_LEXIT'],
-        ['L4_C1', 'L4_C2'], ['L4_C2', 'L4_CEXIT'],
-        ['L4_R1', 'L4_R2'], ['L4_R2', 'L4_REXIT'],
-        // Trasversali
-        ['L4_L2', 'L4_B1'], ['L4_B1', 'L4_C2'],
-        ['L4_R2', 'L4_B2'], ['L4_B2', 'L4_C2']
-      ]
+  previousThiefPosition: null,
+
+  startLevel: (levelNumber) => {
+    console.log(`%c 🚀 AVVIO LIVELLO: ${levelNumber} `, 'background: #222; color: #bada55');
+    
+    try {
+      const level = generateLevel(levelNumber);
+
+      // Estrazione ID puliti
+      let gStart = level.guardStart?.id !== undefined ? level.guardStart.id : level.guardStart;
+      let tStart = level.thiefStart?.id !== undefined ? level.thiefStart.id : level.thiefStart;
+      const eId = level.exitId?.id !== undefined ? level.exitId.id : level.exitId;
+
+      // Prevenzione sovrapposizione allo spawn
+      if (tStart === gStart || tStart === eId) {
+        console.warn("⚠️ Spawn Alert: Ladro sovrapposto a Guardia/Uscita. Cerco nuovo nodo...");
+        const safeNode = level.nodes.find(n => n.id !== gStart && n.id !== eId);
+        if (safeNode) tStart = safeNode.id;
+      }
+
+      console.table({
+        "Vista": "GAME",
+        "Livello": levelNumber,
+        "Guardia Pos": gStart,
+        "Ladro Pos": tStart,
+        "Uscita ID": eId,
+        "Nodi Totali": level.nodes.length
+      });
+
+      set({
+        view: 'GAME',
+        currentLevel: level,
+        currentLevelNumber: levelNumber,
+        guardPosition: gStart,
+        thiefPosition: tStart,
+        blockedNodes: new Set(),
+        previousThiefPosition: null,
+        gameState: 'PLAYING'
+      });
+
+    } catch (err) {
+      console.error("❌ CRASH durante startLevel:", err);
     }
-    ,{
-        id: 5, name: "Arcipelago Nebbioso",
-        nodes: [
-          { id: 'L5_G_START', x: 0, z: -8, type: 'normal' },
-          { id: 'L5_T_START', x: 0, z: 8, type: 'normal' },
-          // Una griglia disordinata di nodi
-          { id: 'N1', x: -5, z: 4, type: 'normal' }, { id: 'N2', x: 0, z: 4, type: 'normal' }, { id: 'N3', x: 5, z: 4, type: 'normal' },
-          { id: 'N4', x: -3, z: 0, type: 'normal' }, { id: 'N5', x: 3, z: 0, type: 'normal' },
-          { id: 'N6', x: -6, z: -4, type: 'normal' }, { id: 'N7', x: 0, z: -4, type: 'normal' }, { id: 'N8', x: 6, z: -4, type: 'normal' },
-          // Uscite nascoste ai lati
-          { id: 'L5_EXIT_L', x: -10, z: 0, type: 'exit' },
-          { id: 'L5_EXIT_R', x: 10, z: 0, type: 'exit' },
-        ],
-        connections: [
-          ['L5_T_START', 'N1'], ['L5_T_START', 'N2'], ['L5_T_START', 'N3'],
-          ['N1', 'N4'], ['N2', 'N4'], ['N2', 'N5'], ['N3', 'N5'],
-          ['N4', 'L5_EXIT_L'], ['N5', 'L5_EXIT_R'],
-          ['N4', 'N7'], ['N5', 'N7'],
-          ['N7', 'N6'], ['N7', 'N8'],
-          ['N6', 'L5_G_START'], ['N7', 'L5_G_START'], ['N8', 'L5_G_START'],
-          ['N1', 'L5_EXIT_L'], ['N3', 'L5_EXIT_R']
-        ]
-    }
-  ],
+  },
+
+  nextLevel: () => {
+    const { currentLevelNumber, startLevel } = get();
+    console.log("⏭️ Passaggio al livello successivo...");
+    startLevel(currentLevelNumber + 1);
+  },
 
   blockNode: (nodeId) => {
-    const { guardPosition, levels, currentLevel, gameState, blockedNodes } = get();
-    if (gameState !== 'PLAYING') return;
-    const level = levels.find(l => l.id === currentLevel);
-    const neighbors = level.connections
+    const { guardPosition, thiefPosition, currentLevel, gameState, blockedNodes } = get();
+    if (gameState !== 'PLAYING' || !currentLevel) return;
+
+    const neighbors = currentLevel.connections
       .filter(conn => conn.includes(guardPosition))
       .map(conn => conn[0] === guardPosition ? conn[1] : conn[0]);
-    if (!neighbors.includes(nodeId) || blockedNodes.has(nodeId)) return;
+
+    if (!neighbors.includes(nodeId)) {
+      console.warn("🚫 Mossa non valida: non è un vicino.");
+      return;
+    }
+
+    if (blockedNodes.has(nodeId)) {
+      console.warn("🚫 Nodo già bloccato.");
+      return;
+    }
+
+    if (nodeId === thiefPosition) {
+      console.log("🎯 PRESO!");
+      set({ guardPosition: nodeId });
+      get().winGame();
+      return;
+    }
+
     set({ guardPosition: nodeId });
-    if (nodeId === get().thiefPosition) { set({ gameState: 'WON' }); return; }
     setTimeout(() => get().moveThief(), 400);
   },
 
   moveThief: () => {
-    const { thiefPosition, levels, currentLevel, blockedNodes, guardPosition } = get();
-    const level = levels.find(l => l.id === currentLevel);
-    const getNeighbors = (pos) => level.connections
-      .filter(conn => conn.includes(pos))
-      .map(conn => conn[0] === pos ? conn[1] : conn[0])
-      .filter(n => !blockedNodes.has(n) && n !== guardPosition);
-    const exits = level.nodes.filter(n => n.type === 'exit').map(n => n.id);
+    const { thiefPosition, currentLevel, blockedNodes, guardPosition } = get();
+    if (!currentLevel || get().gameState !== 'PLAYING') return;
+
+    // Funzione interna per trovare i vicini calpestabili
+    const getNeighbors = (pos) =>
+      currentLevel.connections
+        .filter(conn => conn.includes(pos))
+        .map(conn => (conn[0] === pos ? conn[1] : conn[0]))
+        .filter(n => !blockedNodes.has(n) && n !== guardPosition);
+
     const possibleMoves = getNeighbors(thiefPosition);
-    if (possibleMoves.length === 0) { set({ gameState: 'WON' }); return; }
-    let bestMove = possibleMoves[0];
-    let minDistance = Infinity;
-    for (const move of possibleMoves) {
-      if (exits.includes(move)) { set({ thiefPosition: move, gameState: 'LOST' }); return; }
-      let queue = [{ id: move, dist: 0 }];
-      let visited = new Set([move, guardPosition, ...blockedNodes]);
-      let distToExit = Infinity;
-      while (queue.length > 0) {
-        let { id, dist } = queue.shift();
-        if (exits.includes(id)) { distToExit = dist; break; }
-        for (const neighbor of getNeighbors(id)) {
-          if (!visited.has(neighbor)) { visited.add(neighbor); queue.push({ id: neighbor, dist: dist + 1 }); }
-        }
-      }
-      if (distToExit < minDistance) { minDistance = distToExit; bestMove = move; }
+    const exits = currentLevel.nodes.filter(n => n.type === 'exit').map(n => n.id);
+    const exitId = exits[0]; // Assumiamo una sola uscita principale per livello
+
+    console.log(`🕵️ Ladro in ${thiefPosition}. Valutazione mosse...`);
+
+    if (possibleMoves.length === 0) {
+      console.log("🕸️ Ladro intrappolato! Vittoria.");
+      get().winGame();
+      return;
     }
-    set({ thiefPosition: bestMove });
+
+    // --- LOGICA IA CON PATHFINDING ---
+    let bestMoves = [];
+    let bestScore = -Infinity;
+
+    possibleMoves.forEach(move => {
+      // 1. Distanza dall'uscita
+      const pathToExit = getShortestPath(move, exitId, currentLevel.connections, blockedNodes);
+      const distToExit = pathToExit ? pathToExit.length : Infinity;
+
+      // 2. Distanza dalla guardia
+      const pathToGuard = getShortestPath(move, guardPosition, currentLevel.connections, blockedNodes);
+      const distToGuard = pathToGuard ? pathToGuard.length : 0;
+
+      // 3. Calcolo Punteggio (Più alto è meglio)
+      let score = 0;
+      
+      if (distToExit !== Infinity) {
+        score -= distToExit * 10; // Penalità per ogni passo lontano dall'uscita
+      } else {
+        score -= 1000; // Penalità devastante se l'uscita è irraggiungibile da quel nodo
+      }
+
+      score += distToGuard * 2; // Bonus per tenersi alla larga dalla guardia
+
+      if (move === get().previousThiefPosition) {
+        score -= 50; // Penalità brutale per il backtracking (Risolve i loop)
+      }
+
+      // 4. Selezione delle mosse migliori
+      if (score > bestScore) {
+        bestScore = score;
+        bestMoves = [move];
+      } else if (score === bestScore) {
+        bestMoves.push(move); // In caso di parità di punteggio, salva le alternative
+      }
+    });
+
+    // Seleziona una mossa a caso tra quelle col punteggio massimo (rompe pattern deterministici)
+    const finalMove = bestMoves.length > 0 
+      ? bestMoves[Math.floor(Math.random() * bestMoves.length)] 
+      : possibleMoves[0];
+
+    set({ 
+      previousThiefPosition: thiefPosition, // Memorizza prima di muoversi
+      thiefPosition: finalMove 
+    });
+
+    if (exits.includes(finalMove)) {
+      console.log("💀 Il ladro è scappato!");
+      set({ gameState: 'LOST' });
+    }
   },
 
-  setCurrentLevel: (id) => {
-    const lvl = get().levels.find(l => l.id === id);
-    if (!lvl) { set({ view: 'CAREER' }); return; }
-    let gSpawn = lvl.nodes[0].id;
-    let tSpawn = lvl.nodes[lvl.nodes.length - 1].id;
-    if (id === 2) { gSpawn = 'L2_F2_2'; tSpawn = 'L2_THIEF_START'; }
-    if (id === 3) { gSpawn = 'L3_MID'; tSpawn = 'L3_START'; }
-    if (id === 4) { gSpawn = 'L4_G_START'; tSpawn = 'L4_CENTER'; }
-    if (id === 5) { gSpawn = 'L5_G_START'; tSpawn = 'L5_T_START'; }
-    set({ currentLevel: id, blockedNodes: new Set(), gameState: 'PLAYING', guardPosition: gSpawn, thiefPosition: tSpawn });
+  winGame: () => {
+    console.log("%c 🏆 VITTORIA! ", 'background: #222; color: #FFD700; font-size: 20px');
+    const { currentLevelNumber, unlockedLevels, coins } = get();
+    set({
+      gameState: 'WON',
+      coins: coins + 25,
+      unlockedLevels: Math.max(unlockedLevels, currentLevelNumber + 1)
+    });
   },
 
-  nextLevel: () => get().setCurrentLevel(get().currentLevel + 1),
-  setView: (view) => set({ view })
+  setView: (v) => set({ view: v })
 }));
