@@ -1,16 +1,18 @@
 import { getPattern, mutateGraph } from './PatternLibrary';
 import { getDifficultyConfig } from './DifficultyScaler';
-import { randomNode } from './SpawnManager';
-import { calculateMinMoves, canForceCapture, hasLeafNode } from './Solver';
 
-// Helper: BFS per distanze esatte
+/**
+ * BFS Avanzata: Calcola le distanze tenendo conto di eventuali portali o ostacoli.
+ */
 const getDistances = (startId, graph) => {
   const distances = { [startId]: 0 };
   const queue = [startId];
   
   while (queue.length > 0) {
     const current = queue.shift();
-    const node = graph.nodes instanceof Map ? graph.nodes.get(current) : graph.nodes.find(n => n.id === current);
+    const node = graph.getNode(current);
+    
+    // Supporto per connessioni semplici (ID) o oggetti complessi { to: ID, type: 'portal' }
     const neighbors = node?.connections?.map(c => (typeof c === 'object' ? c.to : c)) || [];
     
     neighbors.forEach(neighbor => {
@@ -23,37 +25,60 @@ const getDistances = (startId, graph) => {
   return distances;
 };
 
-// --- NUOVO LAYOUT A ISOLE ORGANICHE ---
-function generateOrganicLayout(graph, levelNumber) {
+/**
+ * Funzione per iniettare meccaniche speciali (es. Portali) nel grafo prima di calcolare lo spawn.
+ */
+const injectSpecialFeatures = (graph, levelNumber) => {
+  // Esempio: Dal livello 15 in poi (Spazio), aggiungiamo 1 Portale
+  if (levelNumber >= 15) {
+    const ids = graph.getAllNodeIds();
+    // Prendi due nodi a caso
+    const a = ids[Math.floor(Math.random() * ids.length)];
+    const b = ids[Math.floor(Math.random() * ids.length)];
+    
+    // Assicurati che non siano già collegati e non siano lo stesso nodo
+    if (a !== b && !graph.getNode(a).connections.includes(b)) {
+      // Un portale è solo una connessione tra nodi lontani
+      graph.connect(a, b);
+      console.log(`🌀 Portale generato tra ${a} e ${b}`);
+    }
+  }
+};
+
+/**
+ * Genera il layout fisico (Jittered Grid) per evitare bordelli visivi.
+ */
+function generateLayout(graph) {
   const ids = graph.getAllNodeIds();
   const nodes = [];
   const connections = [];
 
-  // Calcoliamo le dimensioni della griglia in base al numero di nodi
   const gridSize = Math.ceil(Math.sqrt(ids.length));
-  const spacing = 8; // Distanza tra le celle
-  const jitter = 2.5; // Quanto "disordine" vogliamo (mantiene l'aspetto a isole)
+  const spacing = 10; 
+  const jitter = 3.0; 
 
   ids.forEach((id, index) => {
     const row = Math.floor(index / gridSize);
     const col = index % gridSize;
 
-    // Posizione base sulla griglia + spostamento casuale
-    const x = col * spacing + (Math.random() - 0.5) * jitter;
-    const z = row * spacing + (Math.random() - 0.5) * jitter;
-
-    nodes.push({ id, x, z, type: 'normal' });
+    nodes.push({
+      id,
+      x: col * spacing + (Math.random() - 0.5) * jitter,
+      z: row * spacing + (Math.random() - 0.5) * jitter,
+      type: 'normal' // Verrà sovrascritto dall'uscita dopo
+    });
   });
 
+  // Centratura perfetta per la camera
+  const avgX = nodes.reduce((s, n) => s + n.x, 0) / nodes.length;
+  const avgZ = nodes.reduce((s, n) => s + n.z, 0) / nodes.length;
+  nodes.forEach(n => { n.x -= avgX; n.z -= avgZ; });
+
   // Estrazione connessioni
-  graph.nodes.forEach((node) => {
-    const fromId = node.id;
-    const neighbors = node.connections?.map(c => (typeof c === 'object' ? c.to : c)) || [];
-    neighbors.forEach(toId => {
-      if (fromId < toId) {
-        // Opzionale: Filtro per evitare ponti troppo lunghi che attraversano tutta la mappa
-        connections.push([fromId, toId]);
-      }
+  graph.nodes.forEach(node => {
+    node.connections.forEach(c => {
+      const toId = typeof c === 'object' ? c.to : c;
+      if (node.id < toId) connections.push([node.id, toId]);
     });
   });
 
@@ -62,74 +87,108 @@ function generateOrganicLayout(graph, levelNumber) {
 
 export function generateLevel(levelNumber) {
   const config = getDifficultyConfig(levelNumber);
-  let graph, guardStart, thiefStart, exitId, minMoves;
+  const patternData = getPattern(levelNumber, config);
+  let graph = patternData.graph;
 
-  console.log(`%c 🏗️ Generando livello Isole ${levelNumber}...`, 'color: #3498db;');
+  let guardStarts = [];
+  let thiefStarts = [];
+  let exitId = null;
 
-  if (levelNumber === 1) {
-    graph = getPattern(1);
-    guardStart = 0; thiefStart = 2; exitId = 3; minMoves = 1;
-  } else {
+  console.log(`%c ⚙️ CORE: Generazione Livello ${levelNumber}`, 'color: #ff00ff; font-weight: bold;');
+
+  // --- LIVELLI FISSI (1-10) ---
+  if (levelNumber <= 10) {
+    guardStarts = patternData.guards;
+    thiefStarts = patternData.thieves;
+    exitId = patternData.exit;
+  } 
+  // --- LIVELLI PROCEDURALI (>10) CON FILTRO MATEMATICO ---
+  else {
     let attempts = 0;
-    let isValidMap = false;
+    let validSpawnFound = false;
 
     do {
       attempts++;
-      graph = getPattern(levelNumber);
+      // 1. Creiamo e mutiamo il grafo base
+      graph = getPattern(levelNumber, config).graph;
       mutateGraph(graph, levelNumber);
+      
+      // 2. INIETTIAMO I PORTALI E LE ANOMALIE
+      injectSpecialFeatures(graph, levelNumber);
 
-      // 1. Piazziamo l'uscita
-      exitId = randomNode(graph);
+      const ids = graph.getAllNodeIds();
+      
+      // 3. Piazziamo l'uscita ai bordi (nodo con meno connessioni)
+      // Più una cella ha poche connessioni, più è una buona "fine" del livello.
+      exitId = ids.reduce((a, b) => graph.getNode(a).connections.length <= graph.getNode(b).connections.length ? a : b);
+
+      // Calcoliamo la distanza di TUTTO dall'uscita (inclusi i salti dei portali)
       const distsFromExit = getDistances(exitId, graph);
 
-      // 2. Piazziamo il ladro il più lontano possibile
-      const validThiefNodes = Object.keys(distsFromExit)
-        .filter(id => distsFromExit[id] >= config.minDistanceFromExit)
-        .sort((a, b) => distsFromExit[b] - distsFromExit[a]); // Ordina per lontananza
+      // 4. LOGICA DI SPAWN LADRO (Deve soffrire)
+      // Il ladro deve essere ad almeno X passi dall'uscita.
+      const validThieves = ids.filter(id => distsFromExit[id] >= 4); 
+      
+      if (validThieves.length === 0) continue; // Mappa troppo piccola/collegata male, rigenera.
+      
+      const tStart = validThieves[Math.floor(Math.random() * validThieves.length)];
+      
+      // 5. LOGICA DI SPAWN GUARDIA (Filtro Anti-Frustrazione)
+      const distsFromThief = getDistances(tStart, graph);
+      
+      const validGuards = ids.filter(id => {
+        const dExit = distsFromExit[id]; // Distanza guardia -> uscita
+        const dThief = distsFromThief[id]; // Distanza guardia -> ladro
 
-      thiefStart = validThiefNodes.length > 0 
-        ? parseInt(validThiefNodes[Math.floor(Math.random() * Math.min(3, validThiefNodes.length))]) 
-        : parseInt(randomNode(graph));
-
-      // 3. Piazziamo la guardia in modo STRATEGICO (deve poter intercettare)
-      const distsFromThief = getDistances(thiefStart, graph);
-      const validGuardNodes = Object.keys(distsFromExit).filter(id => {
-        const dExit = distsFromExit[id];
-        const dThief = distsFromThief[id];
-        // La guardia deve essere più vicina (o uguale) all'uscita rispetto al ladro,
-        // e non deve spawnare in faccia al ladro
-        return dExit < distsFromExit[thiefStart] && dThief >= 2; 
+        // LA REGOLA D'ORO DEL GAME DESIGN:
+        // La guardia DEVE avere un vantaggio sull'uscita, ma non deve fare instant-kill.
+        return dExit <= distsFromExit[tStart] - 1 && dThief >= 2;
       });
 
-      guardStart = validGuardNodes.length > 0 
-        ? parseInt(validGuardNodes[Math.floor(Math.random() * validGuardNodes.length)])
-        : parseInt(randomNode(graph));
+      if (validGuards.length > 0) {
+        const gStart = validGuards[Math.floor(Math.random() * validGuards.length)];
+        
+        guardStarts = [gStart];
+        thiefStarts = [tStart];
 
-      minMoves = calculateMinMoves(graph, guardStart, thiefStart);
+        // Predisposizione seconda guardia per livelli altissimi
+        if (levelNumber >= 20 && validGuards.length > 1) {
+           const gStart2 = validGuards.find(id => id !== gStart);
+           if (gStart2 !== undefined) guardStarts.push(gStart2);
+        }
 
-      // 4. Validazione severa
-      isValidMap = 
-        thiefStart !== guardStart && 
-        thiefStart !== exitId && 
-        guardStart !== exitId &&
-        distsFromExit[thiefStart] > 2 && // Minimo vitale per non vincere istant
-        canForceCapture(graph, guardStart, thiefStart, exitId) &&
-        !hasLeafNode(graph);
+        validSpawnFound = true;
+      }
 
-    } while (!isValidMap && attempts < 100);
-    
-    if (attempts >= 100) console.warn("⚠️ Mappa generata con fallback dopo 100 tentativi.");
+    } while (!validSpawnFound && attempts < 200);
+
+    if (attempts >= 200) {
+      console.error("☠️ Generazione Fallita: Impossibile trovare un bilanciamento matematico per questa mappa.");
+      // Fallback estremo per non far crashare il gioco
+      exitId = graph.getAllNodeIds()[0];
+      guardStarts = [graph.getAllNodeIds()[1]];
+      thiefStarts = [graph.getAllNodeIds()[graph.getAllNodeIds().length - 1]];
+    }
   }
 
-  const layout = generateOrganicLayout(graph, levelNumber);
+  // --- RENDERING DEI DATI ---
+  const layout = generateLayout(graph);
+  
+  // Applica il flag 'exit' al nodo giusto
+  const finalNodes = layout.nodes.map(n => ({
+    ...n,
+    type: n.id === exitId ? 'exit' : 'normal'
+  }));
 
   return {
-    nodes: layout.nodes.map(n => ({ ...n, type: n.id === exitId ? 'exit' : 'normal' })),
+    levelNumber,
+    nodes: finalNodes,
     connections: layout.connections,
-    guardStart,
-    thiefStart,
+    guardStarts, 
+    thiefStarts, 
+    guardStart: guardStarts[0], // Retrocompatibilità UI
+    thiefStart: thiefStarts[0], // Retrocompatibilità UI
     exitId,
-    minMoves,
-    biome: levelNumber < 15 ? 'OCEAN' : 'SPACE'
+    biome: levelNumber >= 15 ? 'SPACE' : 'OCEAN'
   };
 }

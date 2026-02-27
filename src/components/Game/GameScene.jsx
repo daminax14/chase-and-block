@@ -47,10 +47,13 @@ export function GameScene() {
   const { 
     currentLevel, 
     currentLevelNumber, 
-    thiefPosition, 
-    guardPosition, 
+    // Usiamo i PLURALI dallo store aggiornato
+    thiefPositions, 
+    guardPositions, 
     blockedNodes, 
-    blockNode, 
+    // Nota: nello store avevamo rinominato in moveGuard per chiarezza, 
+    // ma se lo chiami blockNode assicurati che i nomi coincidano.
+    moveGuard, 
     gameState, 
     setView, 
     nextLevel 
@@ -59,8 +62,6 @@ export function GameScene() {
   if (!currentLevel) return null;
 
   const isSpace = currentLevel.biome === "SPACE";
-  const tNode = currentLevel.nodes.find(n => n.id === thiefPosition);
-  const gNode = currentLevel.nodes.find(n => n.id === guardPosition);
 
   return (
     <div className="w-full h-screen relative bg-black">
@@ -100,8 +101,8 @@ export function GameScene() {
 
           {/* Ponti (Connections) */}
           {currentLevel.connections.map((conn, idx) => {
-            const s = currentLevel.nodes.find(n => n.id === conn[0]);
-            const e = currentLevel.nodes.find(n => n.id === conn[1]);
+            const s = currentLevel.nodes.find(n => n.id == conn[0]);
+            const e = currentLevel.nodes.find(n => n.id == conn[1]);
             if (!s || !e) return null;
             
             const dx = e.x - s.x;
@@ -119,9 +120,8 @@ export function GameScene() {
 
           {/* Piattaforme (Nodes) */}
           {currentLevel.nodes.map(node => {
-            const isSelectable = true; // Qui potresti aggiungere un controllo sui vicini della guardia
             return (
-              <group key={node.id} position={[node.x, 0, node.z]} onClick={(e) => { e.stopPropagation(); blockNode(node.id); }}>
+              <group key={node.id} position={[node.x, 0, node.z]} onClick={(e) => { e.stopPropagation(); moveGuard(node.id); }}>
                 <mesh castShadow receiveShadow>
                   {isSpace ? <octahedronGeometry args={[1.2, 0]} /> : <cylinderGeometry args={[1.2, 1.3, 0.6, 6]} />}
                   <meshStandardMaterial 
@@ -139,9 +139,19 @@ export function GameScene() {
             );
           })}
 
-          {/* Attori */}
-          {tNode && <ActorModel position={[tNode.x, 0, tNode.z]} label="LADRO" color="#ff00ff" isGuard={false} />}
-          {gNode && <ActorModel position={[gNode.x, 0, gNode.z]} label="GUARDIA" color="#00ffff" isGuard={true} />}
+          {/* Rendering Multi-Guardia */}
+          {guardPositions.map((gPos, idx) => {
+             const node = currentLevel.nodes.find(n => n.id == gPos);
+             if (!node) return null;
+             return <ActorModel key={`guard-${idx}`} position={[node.x, 0, node.z]} label="GUARDIA" color="#00ffff" isGuard={true} />;
+          })}
+
+          {/* Rendering Multi-Ladro */}
+          {thiefPositions.map((tPos, idx) => {
+             const node = currentLevel.nodes.find(n => n.id == tPos);
+             if (!node) return null;
+             return <ActorModel key={`thief-${idx}`} position={[node.x, 0, node.z]} label="LADRO" color="#ff00ff" isGuard={false} />;
+          })}
           
           <ContactShadows position={[0, -0.6, 0]} opacity={0.4} scale={50} blur={2} far={10} />
         </Suspense>

@@ -2,10 +2,11 @@ import { create } from 'zustand';
 import { generateLevel } from '../engine/LevelFactory';
 
 /**
- * Trova il percorso più breve tra due nodi ignorando quelli bloccati.
+ * BFS per trovare il percorso più breve tra due nodi ignorando quelli bloccati.
  * Restituisce l'array dei nodi del percorso o null se non esiste.
  */
-const getShortestPath = (start, target, connections, blocked) => {
+const getShortestPath = (start, target, connections, blocked = []) => {
+  if (start === target) return [start];
   const queue = [[start]];
   const visited = new Set([start, ...blocked]);
 
@@ -29,6 +30,7 @@ const getShortestPath = (start, target, connections, blocked) => {
 };
 
 export const useGameStore = create((set, get) => ({
+  // --- STATO GENERALE ---
   view: 'MENU',
   coins: 50,
   ownedSkins: ['default'],
@@ -37,46 +39,30 @@ export const useGameStore = create((set, get) => ({
   currentLevelNumber: 1,
   currentLevel: null,
   gameState: 'PLAYING',
-  thiefPosition: null,
-  guardPosition: null,
+  
+  // --- STATO DEL LIVELLO (MULTI-CHARACTER) ---
+  guardPositions: [], 
+  thiefPositions: [],
+  prevThiefPositions: new Map(), // Memoria anti-loop per ogni ladro {index: lastPos}
   blockedNodes: new Set(),
-  previousThiefPosition: null,
 
+  /**
+   * Avvia un livello caricando i dati dalla Factory.
+   */
   startLevel: (levelNumber) => {
     console.log(`%c 🚀 AVVIO LIVELLO: ${levelNumber} `, 'background: #222; color: #bada55');
     
     try {
       const level = generateLevel(levelNumber);
 
-      // Estrazione ID puliti
-      let gStart = level.guardStart?.id !== undefined ? level.guardStart.id : level.guardStart;
-      let tStart = level.thiefStart?.id !== undefined ? level.thiefStart.id : level.thiefStart;
-      const eId = level.exitId?.id !== undefined ? level.exitId.id : level.exitId;
-
-      // Prevenzione sovrapposizione allo spawn
-      if (tStart === gStart || tStart === eId) {
-        console.warn("⚠️ Spawn Alert: Ladro sovrapposto a Guardia/Uscita. Cerco nuovo nodo...");
-        const safeNode = level.nodes.find(n => n.id !== gStart && n.id !== eId);
-        if (safeNode) tStart = safeNode.id;
-      }
-
-      console.table({
-        "Vista": "GAME",
-        "Livello": levelNumber,
-        "Guardia Pos": gStart,
-        "Ladro Pos": tStart,
-        "Uscita ID": eId,
-        "Nodi Totali": level.nodes.length
-      });
-
       set({
         view: 'GAME',
         currentLevel: level,
         currentLevelNumber: levelNumber,
-        guardPosition: gStart,
-        thiefPosition: tStart,
+        guardPositions: level.guardStarts, 
+        thiefPositions: level.thiefStarts, 
         blockedNodes: new Set(),
-        previousThiefPosition: null,
+        prevThiefPositions: new Map(),
         gameState: 'PLAYING'
       });
 
@@ -85,117 +71,144 @@ export const useGameStore = create((set, get) => ({
     }
   },
 
+  /**
+   * Gestisce il passaggio al livello successivo.
+   */
   nextLevel: () => {
-    const { currentLevelNumber, startLevel } = get();
+    const { currentLevelNumber } = get();
     console.log("⏭️ Passaggio al livello successivo...");
-    startLevel(currentLevelNumber + 1);
+    get().startLevel(currentLevelNumber + 1);
   },
 
-  blockNode: (nodeId) => {
-    const { guardPosition, thiefPosition, currentLevel, gameState, blockedNodes } = get();
+  /**
+   * Muove la guardia selezionata cliccando su un nodo adiacente.
+   */
+  moveGuard: (targetNodeId) => {
+    const { guardPositions, thiefPositions, currentLevel, gameState, blockedNodes } = get();
     if (gameState !== 'PLAYING' || !currentLevel) return;
 
-    const neighbors = currentLevel.connections
-      .filter(conn => conn.includes(guardPosition))
-      .map(conn => conn[0] === guardPosition ? conn[1] : conn[0]);
+    // 1. Identifica quale guardia può muoversi verso il nodo cliccato (vicinanza)
+    const guardIndex = guardPositions.findIndex(gPos => {
+      const neighbors = currentLevel.connections
+        .filter(conn => conn.includes(gPos))
+        .map(conn => conn[0] === gPos ? conn[1] : conn[0]);
+      return neighbors.includes(targetNodeId);
+    });
 
-    if (!neighbors.includes(nodeId)) {
-      console.warn("🚫 Mossa non valida: non è un vicino.");
+    if (guardIndex === -1) {
+      console.warn("🚫 Mossa non valida: nessuna guardia può raggiungere quel nodo.");
       return;
     }
 
-    if (blockedNodes.has(nodeId)) {
-      console.warn("🚫 Nodo già bloccato.");
-      return;
+    if (blockedNodes.has(targetNodeId)) {
+       console.warn("🚫 Nodo bloccato.");
+       return;
     }
 
-    if (nodeId === thiefPosition) {
-      console.log("🎯 PRESO!");
-      set({ guardPosition: nodeId });
-      get().winGame();
-      return;
+    // 2. Aggiorna posizione della guardia selezionata
+    const newGuards = [...guardPositions];
+    newGuards[guardIndex] = targetNodeId;
+    set({ guardPositions: newGuards });
+
+    // 3. Controllo cattura immediata (guardia sopra ladro)
+    if (thiefPositions.includes(targetNodeId)) {
+      console.log("🎯 LADRO CATTURATO!");
+      const remainingThieves = thiefPositions.filter(p => p !== targetNodeId);
+      set({ thiefPositions: remainingThieves });
+      
+      if (remainingThieves.length === 0) {
+        get().winGame();
+        return;
+      }
     }
 
-    set({ guardPosition: nodeId });
-    setTimeout(() => get().moveThief(), 400);
+    // 4. Turno dei Ladri (dopo un breve delay per l'animazione)
+    setTimeout(() => get().moveThieves(), 400);
   },
 
-  moveThief: () => {
-    const { thiefPosition, currentLevel, blockedNodes, guardPosition } = get();
+  /**
+   * Gestisce l'IA di movimento per tutti i ladri presenti.
+   */
+  moveThieves: () => {
+    const { thiefPositions, currentLevel, blockedNodes, guardPositions, prevThiefPositions } = get();
     if (!currentLevel || get().gameState !== 'PLAYING') return;
 
-    // Funzione interna per trovare i vicini calpestabili
-    const getNeighbors = (pos) =>
-      currentLevel.connections
-        .filter(conn => conn.includes(pos))
-        .map(conn => (conn[0] === pos ? conn[1] : conn[0]))
-        .filter(n => !blockedNodes.has(n) && n !== guardPosition);
+    const exitNodes = currentLevel.nodes.filter(n => n.type === 'exit').map(n => n.id);
+    const exitId = exitNodes[0];
 
-    const possibleMoves = getNeighbors(thiefPosition);
-    const exits = currentLevel.nodes.filter(n => n.type === 'exit').map(n => n.id);
-    const exitId = exits[0]; // Assumiamo una sola uscita principale per livello
+    const updatedThieves = thiefPositions.map((tPos, index) => {
+      const neighbors = currentLevel.connections
+        .filter(conn => conn.includes(tPos))
+        .map(conn => (conn[0] === tPos ? conn[1] : conn[0]))
+        .filter(n => !blockedNodes.has(n) && !guardPositions.includes(n));
 
-    console.log(`🕵️ Ladro in ${thiefPosition}. Valutazione mosse...`);
+      if (neighbors.length === 0) return tPos; // Il ladro è circondato o bloccato
 
-    if (possibleMoves.length === 0) {
-      console.log("🕸️ Ladro intrappolato! Vittoria.");
-      get().winGame();
+      let bestMove = null;
+      let bestScore = -Infinity;
+
+      neighbors.forEach(move => {
+        // Distanza dall'uscita più vicina
+        const pathToExit = getShortestPath(move, exitId, currentLevel.connections, Array.from(blockedNodes));
+        const distToExit = pathToExit ? pathToExit.length : 99;
+
+        // Distanza dalla GUARDIA PIÙ VICINA (Logica multi-guardia)
+        let minDistToGuard = 99;
+        guardPositions.forEach(gPos => {
+          const pathToG = getShortestPath(move, gPos, currentLevel.connections, Array.from(blockedNodes));
+          if (pathToG && pathToG.length < minDistToGuard) {
+            minDistToGuard = pathToG.length;
+          }
+        });
+
+        // CALCOLO SCORE STRATEGICO
+        // + Punti per vicinanza uscita, + Punti per lontananza guardie
+        let score = (100 - distToExit * 10) + (minDistToGuard * 5);
+        
+        // Penalità backtracking (Anti-Loop)
+        if (move === prevThiefPositions.get(index)) {
+          score -= 50;
+        }
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestMove = move;
+        } else if (score === bestScore && bestMove !== null) {
+          // Rompe il determinismo se due mosse sono identiche
+          if (Math.random() > 0.5) bestMove = move;
+        }
+      });
+
+      // Salva la posizione attuale per il prossimo turno (anti-loop)
+      prevThiefPositions.set(index, tPos);
+      return bestMove || neighbors[0];
+    });
+
+    set({ thiefPositions: updatedThieves });
+
+    // --- CONTROLLO CONDIZIONI DI FINE TURNO ---
+    
+    // 1. Il ladro è scappato?
+    if (updatedThieves.some(p => exitNodes.includes(p))) {
+      console.log("💀 Un ladro è scappato!");
+      set({ gameState: 'LOST' });
       return;
     }
 
-    // --- LOGICA IA CON PATHFINDING ---
-    let bestMoves = [];
-    let bestScore = -Infinity;
-
-    possibleMoves.forEach(move => {
-      // 1. Distanza dall'uscita
-      const pathToExit = getShortestPath(move, exitId, currentLevel.connections, blockedNodes);
-      const distToExit = pathToExit ? pathToExit.length : Infinity;
-
-      // 2. Distanza dalla guardia
-      const pathToGuard = getShortestPath(move, guardPosition, currentLevel.connections, blockedNodes);
-      const distToGuard = pathToGuard ? pathToGuard.length : 0;
-
-      // 3. Calcolo Punteggio (Più alto è meglio)
-      let score = 0;
-      
-      if (distToExit !== Infinity) {
-        score -= distToExit * 10; // Penalità per ogni passo lontano dall'uscita
-      } else {
-        score -= 1000; // Penalità devastante se l'uscita è irraggiungibile da quel nodo
-      }
-
-      score += distToGuard * 2; // Bonus per tenersi alla larga dalla guardia
-
-      if (move === get().previousThiefPosition) {
-        score -= 50; // Penalità brutale per il backtracking (Risolve i loop)
-      }
-
-      // 4. Selezione delle mosse migliori
-      if (score > bestScore) {
-        bestScore = score;
-        bestMoves = [move];
-      } else if (score === bestScore) {
-        bestMoves.push(move); // In caso di parità di punteggio, salva le alternative
-      }
-    });
-
-    // Seleziona una mossa a caso tra quelle col punteggio massimo (rompe pattern deterministici)
-    const finalMove = bestMoves.length > 0 
-      ? bestMoves[Math.floor(Math.random() * bestMoves.length)] 
-      : possibleMoves[0];
-
-    set({ 
-      previousThiefPosition: thiefPosition, // Memorizza prima di muoversi
-      thiefPosition: finalMove 
-    });
-
-    if (exits.includes(finalMove)) {
-      console.log("💀 Il ladro è scappato!");
-      set({ gameState: 'LOST' });
+    // 2. Cattura passiva (il ladro si muove sopra una guardia)
+    const survivors = updatedThieves.filter(tp => !guardPositions.includes(tp));
+    if (survivors.length !== updatedThieves.length) {
+       console.log("🎯 LADRO CATTURATO (Mossa errata del ladro)!");
+       set({ thiefPositions: survivors });
+       if (survivors.length === 0) {
+         get().winGame();
+       }
     }
   },
 
+  /**
+   * Gestisce la vittoria e l'assegnazione dei premi.
+   */
   winGame: () => {
     console.log("%c 🏆 VITTORIA! ", 'background: #222; color: #FFD700; font-size: 20px');
     const { currentLevelNumber, unlockedLevels, coins } = get();
@@ -206,5 +219,8 @@ export const useGameStore = create((set, get) => ({
     });
   },
 
+  /**
+   * Cambia la vista dell'applicazione (MENU, GAME, etc.).
+   */
   setView: (v) => set({ view: v })
 }));

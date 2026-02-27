@@ -1,114 +1,122 @@
-// NUOVO PATTERNLIBRARY.JS
-
-import { Graph } from './Graph'
+import { Graph } from './Graph';
 import { getDifficultyConfig } from './DifficultyScaler';
 
-// --- PATTERN 1: TUTORIAL ---
-export function createTutorialPattern() {
-  const g = new Graph();
-  [0, 1, 2, 3].forEach(i => g.addNode(i));
-  g.connect(0, 1); g.connect(1, 2); g.connect(1, 3);
-  return g;
-}
-
-// --- PATTERN 2: RAMIFICATO (Albero con cicli - Ottimo per isole) ---
-function createBranchedPattern(nodesCount) {
-  const g = new Graph();
-  for (let i = 0; i < nodesCount; i++) g.addNode(i);
-  
-  // Costruisci un albero base
-  for (let i = 1; i < nodesCount; i++) {
-    const parent = Math.floor(Math.random() * i);
-    g.connect(i, parent);
-  }
-
-  // Aggiungi cicli extra per non avere solo vicoli ciechi
-  const extraEdges = Math.floor(nodesCount * 0.3);
-  for (let e = 0; e < extraEdges; e++) {
-    const a = Math.floor(Math.random() * nodesCount);
-    const b = Math.floor(Math.random() * nodesCount);
-
-    if (a !== b) {
-      // FIX: Invece di g.areConnected(a, b), controlliamo i nodi
-      const nodeA = g.getNode(a);
-      // Verifichiamo se 'b' è già tra le connessioni di 'a'
-      const alreadyConnected = nodeA?.connections?.some(c => c.to === b);
-
-      if (!alreadyConnected) {
-        g.connect(a, b);
-      }
+const getFixedPattern = (level) => {
+    const g = new Graph();
+    
+    if (level === 1) { // Tutorial: La "T"
+        [0, 1, 2, 3].forEach(i => g.addNode(i));
+        g.connect(0, 1); g.connect(1, 2); g.connect(1, 3);
+        return { graph: g, guards: [0], thieves: [2], exit: 3 };
     }
-  }
-  return g;
-}
-
-// --- PATTERN 3: GRIGLIA DEFORMATA (Ottimo per Città/Marte) ---
-function createGridPattern(nodesCount) {
-  const g = new Graph();
-  // Calcola le dimensioni approssimative della griglia
-  const side = Math.ceil(Math.sqrt(nodesCount));
-  
-  for (let i = 0; i < nodesCount; i++) g.addNode(i);
-
-  for (let i = 0; i < nodesCount; i++) {
-    const row = Math.floor(i / side);
-    const col = i % side;
-
-    // Collega a destra
-    if (col < side - 1 && i + 1 < nodesCount) {
-      g.connect(i, i + 1);
+    
+    if (level === 2) { // Il Quadrato con Coda
+        [0, 1, 2, 3, 4].forEach(i => g.addNode(i));
+        g.connect(0, 1); g.connect(1, 2); g.connect(2, 3); g.connect(3, 0); g.connect(2, 4);
+        return { graph: g, guards: [0], thieves: [1], exit: 4 };
     }
-    // Collega in basso
-    if (row < side - 1 && i + side < nodesCount) {
-      g.connect(i, i + side);
+    
+    if (level === 3) { // Doppio Triangolo (La Farfalla)
+        [0, 1, 2, 3, 4, 5].forEach(i => g.addNode(i));
+        g.connect(0, 1); g.connect(1, 2); g.connect(2, 0); // Primo triangolo
+        g.connect(2, 3); // Ponte centrale
+        g.connect(3, 4); g.connect(4, 5); g.connect(5, 3); // Secondo triangolo
+        return { graph: g, guards: [0], thieves: [4], exit: 1 };
     }
-  }
+    
+    if (level === 4) { // La Casetta
+        [0, 1, 2, 3, 4, 5].forEach(i => g.addNode(i));
+        g.connect(0, 1); g.connect(1, 2); g.connect(2, 3); g.connect(3, 0); // Base
+        g.connect(0, 4); g.connect(1, 4); // Tetto
+        g.connect(2, 5); // Uscita
+        return { graph: g, guards: [4], thieves: [0], exit: 5 };
+    }
 
-  // Rimuovi qualche arco a caso per creare labirinti (Choke points)
-  const edgesToRemove = Math.floor(nodesCount * 0.4);
-  // (Assumendo che il tuo Graph abbia un metodo removeRandomEdge, altrimenti saltalo
-  // o implementalo. Deforma la griglia creando percorsi obbligati).
+    if (level === 5) { // La "H" (Il Ponte Stretto)
+        [0, 1, 2, 3, 4, 5].forEach(i => g.addNode(i));
+        g.connect(0, 1); g.connect(1, 2); // Lato sinistro
+        g.connect(3, 4); g.connect(4, 5); // Lato destro
+        g.connect(1, 4); // Il ponte
+        return { graph: g, guards: [0], thieves: [5], exit: 3 };
+    }
 
-  return g;
-}
+    if (level === 6) { // Il Diamante Tagliato
+        [0, 1, 2, 3, 4].forEach(i => g.addNode(i));
+        g.connect(0, 1); g.connect(1, 2); g.connect(2, 3); g.connect(3, 0); // Perimetro
+        g.connect(0, 2); // Taglio centrale
+        g.connect(2, 4); // Uscita
+        return { graph: g, guards: [1], thieves: [3], exit: 4 };
+    }
 
-export function getPattern(levelNumber) {
-  const config = getDifficultyConfig(levelNumber);
-  const n = config.nodesCount;
+    if (level === 7) { // La Scala
+        [0, 1, 2, 3, 4, 5].forEach(i => g.addNode(i));
+        g.connect(0, 1); g.connect(1, 2); // Binario A
+        g.connect(3, 4); g.connect(4, 5); // Binario B
+        g.connect(0, 3); g.connect(2, 5); // Pioli
+        return { graph: g, guards: [0], thieves: [1], exit: 2 };
+    }
 
-  if (levelNumber === 1) return createTutorialPattern();
-  
-  // LIVELLI 2-10: Solo strutture a Griglia o Branched (niente Mesh caotiche!)
-  if (levelNumber <= 10) {
-    // La griglia è intrinsecamente ordinata e facile da leggere
-    return createGridPattern(n); 
-  }
+    if (level === 8) { // La Stella (Collo di bottiglia centrale)
+        [0, 1, 2, 3, 4, 5].forEach(i => g.addNode(i));
+        g.connect(0, 1); g.connect(0, 2); g.connect(0, 3); g.connect(0, 4); // Centro a punte
+        g.connect(4, 5); // Punta con uscita
+        return { graph: g, guards: [1], thieves: [3], exit: 5 };
+    }
 
-  // LIVELLI 11-20: Introduciamo i ponti sospesi (Bridge) e strutture radiali
-  if (levelNumber <= 20) {
-    return Math.random() > 0.5 ? createBridgePattern(n) : createRadialPattern(n);
-  }
+    if (level === 9) { // La Clessidra
+        [0, 1, 2, 3, 4, 5, 6].forEach(i => g.addNode(i));
+        g.connect(0, 1); g.connect(1, 2); g.connect(2, 0); // Sopra
+        g.connect(2, 3); // Nodo centrale
+        g.connect(3, 4); g.connect(4, 5); g.connect(5, 3); // Sotto
+        g.connect(5, 6); // Uscita
+        return { graph: g, guards: [0], thieves: [4], exit: 0 };
+    }
 
-  // Solo alla fine introduciamo il caos controllato
-  return createMeshPattern(n);
+    if (level === 10) { // L'Esagono con Centro (La Ragnatela)
+        [0, 1, 2, 3, 4, 5, 6, 7].forEach(i => g.addNode(i));
+        g.connect(0, 1); g.connect(1, 2); g.connect(2, 3); g.connect(3, 4); g.connect(4, 5); g.connect(5, 0); // Cerchio
+        g.connect(0, 6); g.connect(2, 6); g.connect(4, 6); // Raggi verso il centro
+        g.connect(3, 7); // Uscita
+        return { graph: g, guards: [0], thieves: [6], exit: 7 };
+    }
+
+    return null;
+};
+
+export function getPattern(levelNumber, config) {
+    const fixed = getFixedPattern(levelNumber);
+    if (fixed) return fixed;
+
+    // PROCEDURALE PER LIVELLI > 10 (Griglia Labirintica Scalabile)
+    const g = new Graph();
+    const n = config.nodesCount || 10;
+    for (let i = 0; i < n; i++) g.addNode(i);
+    
+    const side = Math.ceil(Math.sqrt(n));
+    for (let i = 0; i < n; i++) {
+        const row = Math.floor(i / side);
+        const col = i % side;
+        // Connessioni a griglia per mantenere ordine visivo
+        if (col < side - 1 && i + 1 < n) g.connect(i, i + 1);
+        if (row < side - 1 && i + side < n) g.connect(i, i + side);
+    }
+    return { graph: g };
 }
 
 export function mutateGraph(graph, levelNumber) {
-  if (levelNumber === 1) return; 
-  const config = getDifficultyConfig(levelNumber);
-  if (Math.random() > config.mutateChance) return;
+    // Non mutiamo i primi 10 livelli per non rompere le forme geometriche
+    if (levelNumber <= 10) return; 
 
-  const ids = graph.getAllNodeIds();
-  const aId = ids[Math.floor(Math.random() * ids.length)];
-  const bId = ids[(ids.indexOf(aId) + 1) % ids.length];
+    const config = getDifficultyConfig(levelNumber);
+    if (Math.random() > config.mutateChance) return;
 
-  if (aId !== bId) {
-    // Controllo manuale invece di areConnected
+    const ids = graph.getAllNodeIds();
+    const aId = ids[Math.floor(Math.random() * ids.length)];
+    // Cerchiamo un bId "vicino" per evitare ponti che attraversano tutta la mappa
+    const bId = ids[(ids.indexOf(aId) + 2) % ids.length]; 
+
     const nodeA = graph.getNode(aId);
-    const alreadyConnected = nodeA?.connections?.some(c => c.to === bId);
-
-    if (!alreadyConnected) {
-      graph.connect(aId, bId);
+    if (nodeA && !nodeA.connections.some(c => c.to === bId)) {
+        graph.connect(aId, bId);
     }
-  }
 }
