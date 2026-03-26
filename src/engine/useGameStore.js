@@ -295,7 +295,11 @@ export const useGameStore = create((set, get) => ({
         .map(c => c.from === tPos ? c.to : c.from)
         .filter(n => !blockedNodes.has(n) && !guardPositions.includes(n));
 
-      if (neighbors.length === 0) continue; // ladro bloccato, non si muove
+      if (neighbors.length === 0) {
+       // Il ladro è fottuto. Segnalo in un array di "intrappolati"
+        swapCaptured.push(i); 
+        continue; 
+      }
 
       // Assicura cache per ogni vicino
       neighbors.forEach(n => buildTempBFS(n));
